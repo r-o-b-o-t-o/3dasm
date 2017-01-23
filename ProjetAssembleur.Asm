@@ -26,6 +26,9 @@ includelib masm32.lib
 	AppName  	db 	"Moteur 3D",0
 	crlf		db  10,0
 	space		db	"   ",0
+	modulo		dd	4
+	mult		dd	3
+	cpt			dd	0
 	offX		dd	300
 	offY		dd	300
 	offZ		dd	400
@@ -33,7 +36,32 @@ includelib masm32.lib
 	rotY		dd 0
 	rotZ		dd 0
 	angle		dd 0 ; angle en degrés, indice des tableaux sinus et cosinus
+	objet_c		dd -100, -100, -100,
+					100, -100, -100,
+					100, 100, -100,
+					-100, 100, -100,
+					100, -100, 100,
+					-100, -100, 100,
+					-100, 100, 100,
+					100, 100, 100
+	objet_t		dd -100,100,100,
+					100,100,100,
+					0,-100,0,
+					0,100,-100
+	faces_c		dd	0, 1, 2, 3,
+					1, 4, 7, 2,
+					4, 5, 6, 7,
+					5, 0, 3, 6,
+					5, 4, 1, 0,
+					3, 2, 7, 6
+	faces_t		dd	0, 1, 2, 0,
+					1, 3, 2, 1,
+					3, 0, 2, 3,
+					0, 3, 1, 0
 	distFocale REAL8 250.0
+	shape		dd	0 ; 0 = CUBE, 1 = TÉTRAÈDRE
+	
+	commands	db	"Fl",138,"ches directionnelles : d",130,"caler l'objet", 10, "+ : Zoom", 10, "- : D",130,"zoom", 10, 10, "X : Rotation selon X", 10, "Y : Rotation selon Y", 10, "Z : Rotation selon Z", 10, "R : R",130,"initialiser les rotations", 10, 10, "C : Afficher un cube", 10, "T : Afficher un t",130,"tra",138,"dre", 10, 0
 
 .data?
 	x			REAL8 ?
@@ -46,11 +74,16 @@ includelib masm32.lib
 	x2			dd ?
 	y2			dd ?
 	z2			dd ?
+	x3			dd ?
+	y3			dd ?
+	z3			dd ?
 
 .const
 
 .code
-start: 
+start:
+	invoke StdOut, addr commands
+
 	trigo:
 		fldpi	; st0 = PI
 		fimul angle	; st0 = PI*angle
@@ -184,7 +217,6 @@ RotationY proc _x:DWORD, _y:DWORD, _z:DWORD
 	fsub flottant
 	fistp z2 ; z' = z * cos(rotY) - x * sin(rotY)
 	
-	
 	mov eax, x2
 	mov ebx, z2
 	ret
@@ -215,7 +247,6 @@ RotationZ proc _x:DWORD, _y:DWORD, _z:DWORD
 	fild y2
 	fadd flottant
 	fistp y2 ; y' = x * sin(rotZ) + y * cos(rotZ)
-	
 	
 	mov eax, x2
 	mov ebx, y2
@@ -278,6 +309,55 @@ ProjectionDraw proc _x:DWORD, _y:DWORD, _z:DWORD
 	ret
 ProjectionDraw endp
 
+DrawFigure proc objet, faces, s
+	mov cpt, 0
+	
+	figure:
+		mov esi, objet
+		mov edi, faces
+	
+		mov eax, DWORD
+		mul cpt ; eax = cpt * DWORD
+		add edi, eax
+		mov ebx, [edi] ; ebx = faces[cpt * DWORD]
+		
+		mov eax, DWORD
+		mul ebx ; eax = DWORD * faces[cpt * DWORD]
+		mul mult ; eax = DWORD * faces[cpt * DWORD] * 3
+		add esi, eax
+		mov eax, [esi] ; eax = objet[DWORD * faces[cpt * DWORD] * 3]
+		mov x3, eax
+		
+		add esi, DWORD
+		mov eax, [esi] ; eax = objet[DWORD * faces[cpt * DWORD] * 3 +1]
+		mov y3, eax
+		
+		add esi, DWORD
+		mov eax, [esi] ; eax = objet[DWORD * faces[cpt * DWORD] * 3 +2]
+		mov z3, eax
+		
+		mov eax, cpt
+		xor edx, edx
+		div modulo
+		cmp edx, 0
+		je move
+		jmp draw
+		
+		move:
+			invoke ProjectionMove, x3, y3, z3
+			inc cpt
+			jmp figure
+		draw:
+			invoke ProjectionDraw, x3, y3, z3
+			inc cpt
+		
+		mov ecx, s
+		cmp cpt, ecx
+		jne figure
+
+	ret
+DrawFigure endp
+
 WndProc proc hWnd:HWND, uMsg:UINT, wParam:WPARAM, lParam:LPARAM 
     cmp uMsg, WM_DESTROY	; demande de fermeture de la fenêtre (clic sur croix rouge)
     je destroy
@@ -297,71 +377,18 @@ WndProc proc hWnd:HWND, uMsg:UINT, wParam:WPARAM, lParam:LPARAM
     	invoke BeginPaint, hWnd, ADDR ps	; lance le dessin de la fenêtre
 		mov hdc, eax	; BeginPaint retourne le handle du contexte où on dessine
 		
-		;;;;;; Cube
-		;;; Face 0
-		invoke ProjectionMove, -100, -100, -100 ; 0
-		invoke ProjectionDraw, 100, -100, -100 ; 1
-		invoke ProjectionDraw, 100, 100, -100 ; 2
-		invoke ProjectionDraw, -100, 100, -100 ; 3
+		cmp shape, 0
+		je cube
+		cmp shape, 1
+		je tetraedre
 		
-		;;; Face 1
-		invoke ProjectionMove, 100, -100, -100 ; 1
-		invoke ProjectionDraw, 100, -100, 100 ; 4
-		invoke ProjectionDraw, 100, 100, 100 ; 7
-		invoke ProjectionDraw, 100, 100, -100 ; 2
-		
-		;;; Face 2
-		invoke ProjectionMove, 100, -100, 100 ; 4
-		invoke ProjectionDraw, -100, -100, 100 ; 5
-		invoke ProjectionDraw, -100, 100, 100 ; 6
-		invoke ProjectionDraw, 100, 100, 100 ; 7
-		
-		;;; Face 3
-		invoke ProjectionMove, -100, -100, 100 ; 5
-		invoke ProjectionDraw, -100, -100, -100 ; 0
-		invoke ProjectionDraw, -100, 100, -100 ; 3
-		invoke ProjectionDraw, -100, 100, 100 ; 6
-		
-		;;; Face 4
-		invoke ProjectionMove, -100, -100, 100 ; 5
-		invoke ProjectionDraw, 100, -100, 100 ; 4
-		invoke ProjectionDraw, 100, -100, -100 ; 1
-		invoke ProjectionDraw, -100, -100, -100 ; 0
-		
-		;;; Face 5
-		invoke ProjectionMove, -100, 100, -100 ; 3
-		invoke ProjectionDraw, 100, 100, -100 ; 2
-		invoke ProjectionDraw, 100, 100, 100 ; 7
-		invoke ProjectionDraw, -100, 100, 100 ; 6
-		
-		;;;;;; Tétraèdre
-;		;;; Face 0
-;		invoke ProjectionMove, -100, 100, 100 ; 0
-;		invoke ProjectionDraw, 100, 100, 100 ; 1
-;		invoke ProjectionDraw, 0, -100, 0 ; 2
-;		invoke ProjectionDraw, -100, 100, 100 ; 0
-;		
-;		;;; Face 1
-;		invoke ProjectionMove, 100, 100, 100 ; 1
-;		invoke ProjectionDraw, 0, 100, -100 ; 3
-;		invoke ProjectionDraw, 0, -100, 0 ; 2
-;		invoke ProjectionDraw, 100, 100, 100 ; 1
-;		
-;		;;; Face 2
-;		invoke ProjectionMove, 0, 100, -100 ; 3
-;		invoke ProjectionDraw, -100, 100, 100 ; 0
-;		invoke ProjectionDraw, 0, -100, 0 ; 2
-;		invoke ProjectionDraw, 0, 100, -100 ; 3
-;		
-;		;;; Face 3
-;		invoke ProjectionMove, -100, 100, 100 ; 0
-;		invoke ProjectionDraw, 0, 100, -100 ; 3
-;		invoke ProjectionDraw, 100, 100, 100 ; 1
-;		invoke ProjectionDraw, -100, 100, 100 ; 0
-		
-        invoke EndPaint, hWnd, ADDR ps ; fin du dessin de la fenêtre
-        jmp fin_messages
-        
+		cube:
+			invoke DrawFigure, ADDR objet_c, ADDR faces_c, 24
+			jmp fin_messages
+		tetraedre:
+			invoke DrawFigure, ADDR objet_t, ADDR faces_t, 16
+			jmp fin_messages
+			
     keyDown:
 		mov eax, wParam ; Touche pressée
     	cmp eax, VK_OEM_PLUS
@@ -386,6 +413,12 @@ WndProc proc hWnd:HWND, uMsg:UINT, wParam:WPARAM, lParam:LPARAM
     	je rotateY
     	cmp eax, VK_Z
     	je rotateZ
+    	cmp eax, VK_R
+    	je resetRotations
+    	cmp eax, VK_C
+    	je selectCube
+    	cmp eax, VK_T
+    	je selectTetraedre
     	cmp eax, VK_Q
     	je keyQuit
     	cmp eax, VK_ESCAPE
@@ -444,6 +477,18 @@ WndProc proc hWnd:HWND, uMsg:UINT, wParam:WPARAM, lParam:LPARAM
     	jmp repaint
     resetRotZ:
     	mov rotZ, 0
+    	jmp repaint
+    resetRotations:
+    	mov rotX, 0
+    	mov rotY, 0
+    	mov rotZ, 0
+    	jmp repaint
+    	
+    selectCube:
+    	mov shape, 0
+    	jmp repaint
+    selectTetraedre:
+    	mov shape, 1
     	jmp repaint
     	
     repaint:
